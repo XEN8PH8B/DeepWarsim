@@ -1,0 +1,1529 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>DeepWarsim — Стратегическая Карта</title>
+  
+  <!-- Библиотека Leaflet для бесплатной карты -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Библиотека георасчетов Turf.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+
+  <style>
+    /* ==========================================================================
+       1. БАЗОВЫЕ ПЕРЕМЕННЫЕ И ТЕМЫ UI
+       ========================================================================== */
+    :root {
+      --bg-dark: #0a0d14;
+      --bg-panel: rgba(13, 17, 26, 0.94);
+      --bg-card: rgba(22, 28, 41, 0.85);
+      --border-color: rgba(255, 255, 255, 0.1);
+      --border-focus: rgba(99, 137, 247, 0.6);
+      
+      --accent-attack: #e63946;
+      --accent-defense: #2563eb;
+      
+      --text-main: #f1f5f9;
+      --text-muted: #8b9bb4;
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --panel-width: 380px;
+      --transition-smooth: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    body.theme-midnight {
+      --bg-dark: #020617;
+      --bg-panel: rgba(2, 6, 23, 0.95);
+      --bg-card: rgba(15, 23, 42, 0.85);
+      --border-color: rgba(56, 189, 248, 0.15);
+      --border-focus: rgba(56, 189, 248, 0.8);
+      --text-main: #e0f2fe;
+      --text-muted: #7dd3fc;
+    }
+
+    body.theme-crimson {
+      --bg-dark: #1a0505;
+      --bg-panel: rgba(26, 5, 5, 0.95);
+      --bg-card: rgba(45, 10, 10, 0.85);
+      --border-color: rgba(248, 113, 113, 0.15);
+      --border-focus: rgba(248, 113, 113, 0.8);
+      --text-main: #fee2e2;
+      --text-muted: #fca5a5;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--bg-dark);
+      font-family: var(--font-family);
+      color: var(--text-main);
+      transition: background-color 0.5s ease, color 0.5s ease;
+      touch-action: none; /* Защита от системных свайпов на мобильных */
+    }
+
+    input, button, select {
+      font-family: inherit;
+    }
+
+    /* ==========================================================================
+       2. ГЛАВНОЕ МЕНЮ И ФОН
+       ========================================================================== */
+    #screen-menu {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at center, var(--bg-card) 0%, var(--bg-dark) 100%);
+      z-index: 1000;
+      transition: opacity 0.5s ease, transform 0.5s ease;
+    }
+
+    #screen-menu.hidden {
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(1.05);
+    }
+
+    #menu-bg-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      opacity: 0.6;
+    }
+
+    .menu-container {
+      position: relative;
+      z-index: 10;
+      text-align: center;
+      padding: 30px;
+      width: 90%;
+      max-width: 600px;
+      animation: fadeIn 1s ease-out;
+      background: rgba(0, 0, 0, 0.2);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    }
+
+    .game-title-wrapper {
+      position: relative;
+      display: inline-block;
+      margin-bottom: 30px;
+    }
+
+    .game-title {
+      font-size: clamp(36px, 8vw, 64px);
+      font-weight: 900;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      line-height: 1;
+      background: linear-gradient(180deg, #ffffff 20%, var(--text-muted) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 4px 10px rgba(0,0,0,0.5));
+    }
+
+    .beta-badge {
+      position: absolute;
+      bottom: -10px;
+      right: -20px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: #0f172a;
+      background: #38bdf8;
+      padding: 4px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      box-shadow: 0 2px 10px rgba(56, 189, 248, 0.4);
+    }
+
+    .menu-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .btn-main {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      max-width: 260px;
+      height: 56px;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #ffffff;
+      background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      transition: var(--transition-smooth);
+      backdrop-filter: blur(5px);
+    }
+
+    .btn-main:hover {
+      background: rgba(255,255,255,0.15);
+      border-color: rgba(255, 255, 255, 0.4);
+      transform: translateY(-2px);
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+    }
+
+    .btn-play {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      border-color: #3b82f6;
+    }
+    .btn-play:hover {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      border-color: #60a5fa;
+      box-shadow: 0 14px 40px rgba(37, 99, 235, 0.4);
+    }
+
+    /* ==========================================================================
+       3. ОКНО НАСТРОЕК (МОДАЛЬНОЕ)
+       ========================================================================== */
+    #settings-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(5px);
+      z-index: 2000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    #settings-modal.active {
+      display: flex;
+      opacity: 1;
+    }
+
+    .settings-content {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 24px;
+      width: 90%;
+      max-width: 400px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.7);
+      transform: scale(0.95);
+      transition: transform 0.3s ease;
+    }
+
+    #settings-modal.active .settings-content {
+      transform: scale(1);
+    }
+
+    .settings-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 10px;
+    }
+
+    .settings-title {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .settings-group {
+      margin-bottom: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .settings-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .settings-select {
+      width: 100%;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 10px;
+      border-radius: 6px;
+      outline: none;
+    }
+
+    .settings-select:focus {
+      border-color: var(--border-focus);
+    }
+
+    .btn-close-settings {
+      width: 100%;
+      margin-top: 10px;
+      padding: 12px;
+      background: #1e293b;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-main);
+      font-weight: 700;
+      cursor: pointer;
+      transition: var(--transition-smooth);
+    }
+    .btn-close-settings:hover {
+      background: #334155;
+    }
+
+    /* ==========================================================================
+       4. ИГРОВАЯ СЦЕНА И КАРТА
+       ========================================================================== */
+    #screen-game {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    
+    #map-canvas {
+      width: 100%;
+      height: 100%;
+      background-color: var(--bg-dark);
+    }
+    
+    .leaflet-control-attribution {
+      display: none !important;
+    }
+
+    /* Интерактивный Canvas для лассо */
+    #lasso-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 400; /* Поверх Leaflet UI */
+      display: none;
+      touch-action: none;
+      cursor: crosshair;
+    }
+    #lasso-canvas.active {
+      display: block;
+    }
+
+    /* Кнопки управления поверх карты */
+    .btn-wars-toggle, .btn-system-toggle {
+      display: none; /* Изначально скрыты (показываются через JS) */
+    }
+
+    .btn-wars-toggle.active {
+      position: fixed;
+      top: max(20px, env(safe-area-inset-top));
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 500;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 24px;
+      background: var(--bg-panel);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: 30px;
+      color: var(--text-main);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      transition: var(--transition-smooth);
+    }
+    .btn-wars-toggle:hover {
+      border-color: rgba(255, 255, 255, 0.3);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7);
+    }
+
+    .btn-system-toggle.active {
+      position: fixed;
+      top: max(20px, env(safe-area-inset-top));
+      right: max(20px, env(safe-area-inset-right));
+      z-index: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      background: var(--bg-panel);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      color: var(--text-main);
+      font-size: 20px;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      transition: var(--transition-smooth);
+    }
+    .btn-system-toggle:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.4);
+    }
+
+    .indicator-pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--accent-attack);
+      box-shadow: 0 0 8px var(--accent-attack);
+      animation: pulse 2s infinite;
+    }
+
+    /* ==========================================================================
+       5. БОКОВЫЕ ПАНЕЛИ
+       ========================================================================== */
+    .side-panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: var(--panel-width);
+      max-width: 100vw; /* Поддержка мобилок */
+      height: 100%;
+      background: var(--bg-panel);
+      backdrop-filter: blur(16px);
+      border-left: 1px solid var(--border-color);
+      z-index: 600;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: -10px 0 35px rgba(0, 0, 0, 0.6);
+    }
+    .side-panel.open { transform: translateX(0); }
+
+    /* Отдельный размер для системного меню */
+    #system-panel {
+      width: 320px;
+    }
+    @media (max-width: 480px) {
+      #system-panel { width: 100vw; }
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: max(20px, env(safe-area-inset-top)) 20px 20px 20px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .panel-title {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    .panel-actions {
+      display: flex;
+      gap: 10px;
+    }
+    .btn-icon {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 6px;
+      border-radius: 4px;
+      font-size: 18px;
+      transition: var(--transition-smooth);
+    }
+    .btn-icon:hover { color: var(--text-main); }
+
+    .panel-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      padding-bottom: max(20px, env(safe-area-inset-bottom));
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .btn-add-country {
+      width: 100%;
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px dashed rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      color: var(--text-main);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: var(--transition-smooth);
+    }
+    .btn-add-country:hover {
+      background: rgba(255, 255, 255, 0.09);
+      border-color: rgba(255, 255, 255, 0.4);
+    }
+
+    .country-form {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .form-group { display: flex; flex-direction: column; gap: 8px; }
+    .form-label {
+      font-size: 11px; font-weight: 700; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--text-muted);
+    }
+    .type-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .type-btn {
+      padding: 12px 6px; font-size: 11px; font-weight: 700; letter-spacing: 1px;
+      text-transform: uppercase; border-radius: 6px; cursor: pointer;
+      border: 1px solid var(--border-color); background: rgba(0, 0, 0, 0.3);
+      color: var(--text-muted); transition: var(--transition-smooth); text-align: center;
+    }
+    .type-btn.selected[data-type="attack"] {
+      background: rgba(230, 57, 70, 0.2); border-color: var(--accent-attack); color: #ff9aa2;
+    }
+    .type-btn.selected[data-type="defense"] {
+      background: rgba(37, 99, 235, 0.2); border-color: var(--accent-defense); color: #93c5fd;
+    }
+
+    .form-actions { display: flex; gap: 8px; }
+    .btn-submit-form {
+      flex: 1; padding: 12px; background: #1e293b; border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 6px; color: var(--text-main); font-size: 12px; font-weight: 700;
+      letter-spacing: 1px; text-transform: uppercase; cursor: pointer; transition: var(--transition-smooth);
+    }
+    .btn-submit-form:hover { background: #334155; }
+    .btn-cancel-form {
+      padding: 12px 14px; background: transparent; border: 1px solid var(--border-color);
+      border-radius: 6px; color: var(--text-muted); font-size: 12px; cursor: pointer; transition: var(--transition-smooth);
+    }
+    .btn-cancel-form:hover { background: rgba(255,255,255,0.05); color: var(--text-main); }
+
+    .countries-section-title {
+      font-size: 11px; font-weight: 700; letter-spacing: 1.5px;
+      text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px;
+    }
+    .countries-list { display: flex; flex-direction: column; gap: 10px; }
+    .country-card {
+      display: flex; flex-direction: column; gap: 10px; padding: 14px;
+      background: var(--bg-card); border: 1px solid var(--border-color);
+      border-radius: 8px; transition: var(--transition-smooth);
+    }
+    .country-card:hover { border-color: rgba(255, 255, 255, 0.2); }
+    .country-card-header { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+    .country-indicator { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .country-indicator.attack { background-color: var(--accent-attack); box-shadow: 0 0 8px rgba(230,57,70,0.7); }
+    .country-indicator.defense { background-color: var(--accent-defense); box-shadow: 0 0 8px rgba(37,99,235,0.7); }
+    .country-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .country-name { font-size: 14px; font-weight: 600; }
+    .country-type { font-size: 11px; color: var(--text-muted); text-transform: capitalize; }
+    
+    .country-card-actions {
+      display: flex; align-items: center; gap: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 8px;
+    }
+    .btn-action-invade {
+      flex: 1; padding: 10px 10px; background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border-color); border-radius: 4px;
+      color: #cbd5e1; font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+      text-transform: uppercase; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;
+      transition: var(--transition-smooth);
+    }
+    .btn-action-invade:hover {
+      background: rgba(230, 57, 70, 0.2); border-color: rgba(230,57,70,0.5); color: #ff9aa2;
+    }
+    .btn-action-delete {
+      padding: 10px; background: transparent; border: 1px solid transparent;
+      border-radius: 4px; color: var(--text-muted); font-size: 14px; cursor: pointer;
+      transition: var(--transition-smooth);
+    }
+    .btn-action-delete:hover { color: #ff4d5e; background: rgba(255,77,94,0.1); }
+
+    .empty-state {
+      text-align: center; padding: 30px 10px; color: var(--text-muted);
+      font-size: 13px; border: 1px dashed rgba(255, 255, 255, 0.08); border-radius: 8px;
+    }
+
+    /* Плавающие HUD (Mobile Safe Area) */
+    .floating-hud {
+      position: fixed; 
+      bottom: max(24px, env(safe-area-inset-bottom)); 
+      left: 50%; transform: translateX(-50%);
+      z-index: 600; background: var(--bg-panel); backdrop-filter: blur(16px);
+      border: 1px solid var(--border-color); border-radius: 12px;
+      padding: 14px 20px; display: none; box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      width: calc(100% - 32px); max-width: 520px;
+    }
+    .floating-hud.active { display: flex; }
+    #selection-hud { flex-direction: row; align-items: center; justify-content: space-between; gap: 16px; }
+    #lasso-hud { flex-direction: column; gap: 12px; }
+    .hud-header { display: flex; justify-content: space-between; width: 100%; }
+    .hud-title { font-size: 13px; font-weight: 700; text-transform: uppercase; display: flex; gap: 8px; align-items: center; }
+    .hud-hint { font-size: 11px; color: var(--text-muted); }
+    .hud-actions { display: flex; gap: 8px; width: 100%; }
+    .btn-hud {
+      flex: 1; padding: 12px 8px; font-size: 11px; font-weight: 700;
+      text-transform: uppercase; border-radius: 6px; cursor: pointer;
+      border: 1px solid var(--border-color); background: rgba(255,255,255,0.05); color: var(--text-main);
+      transition: var(--transition-smooth);
+    }
+    .btn-hud:disabled { opacity: 0.35; cursor: not-allowed; }
+    .btn-hud-finish { background: rgba(230, 57, 70, 0.25); border-color: rgba(230, 57, 70, 0.6); color: #ff9aa2; }
+    .btn-hud-finish:hover:not(:disabled) { background: rgba(230, 57, 70, 0.45); }
+    .btn-hud-cancel { flex: 0.6; color: var(--text-muted); }
+
+    @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
+    @keyframes pulse { 0% { transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.85); } 100% { transform: scale(1); } }
+  </style>
+</head>
+<body>
+
+  <!-- 1. ГЛАВНОЕ МЕНЮ (Холст интегрирован внутрь для корректного скрытия) -->
+  <div id="screen-menu">
+    <!-- ИНТЕРАКТИВНЫЙ ФОН МЕНЮ -->
+    <canvas id="menu-bg-canvas"></canvas>
+    
+    <div class="menu-container">
+      <div class="game-title-wrapper">
+        <h1 class="game-title">DeepWarsim</h1>
+        <div class="beta-badge">BETA</div>
+      </div>
+      <p class="game-subtitle">Глобальный стратегический симулятор. Создавайте государства, очерчивайте границы и управляйте геополитикой на интерактивной карте.</p>
+      <div class="menu-buttons">
+        <button id="btn-play" class="btn-main btn-play">Начать игру</button>
+        <button id="btn-menu-settings" class="btn-main">Настройки</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ОКНО НАСТРОЕК -->
+  <div id="settings-modal">
+    <div class="settings-content">
+      <div class="settings-header">
+        <div class="settings-title">Настройки</div>
+        <button id="btn-close-settings-x" class="btn-icon">✕</button>
+      </div>
+      
+      <div class="settings-group">
+        <label class="settings-label">Тема интерфейса</label>
+        <select id="select-theme" class="settings-select">
+          <option value="default">Тёмная (Стандарт)</option>
+          <option value="midnight">Глубокий синий (Midnight)</option>
+          <option value="crimson">Багровая (Crimson)</option>
+        </select>
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label">Стиль карты</label>
+        <select id="select-map-style" class="settings-select">
+          <option value="dark">Тёмная (Тактическая)</option>
+          <option value="light">Светлая (Атлас)</option>
+          <option value="retro">Ретро (Старая бумага)</option>
+        </select>
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label">Анимация главного меню</label>
+        <select id="select-animations" class="settings-select">
+          <option value="on">Включена (Партиклы)</option>
+          <option value="off">Выключена (Экономия батареи)</option>
+        </select>
+      </div>
+
+      <button id="btn-close-settings" class="btn-close-settings">Применить и закрыть</button>
+    </div>
+  </div>
+
+  <!-- 2. ИГРОВОЙ ЭКРАН -->
+  <div id="screen-game">
+    <div id="map-canvas"></div>
+    <canvas id="lasso-canvas"></canvas>
+
+    <!-- Игровые кнопки (отображаются только во время игры) -->
+    <button id="btn-wars-toggle" class="btn-wars-toggle">
+      <span class="indicator-pulse"></span>
+      <span>Войны</span>
+    </button>
+    <button id="btn-system-toggle" class="btn-system-toggle" title="Меню игры">☰</button>
+  </div>
+
+  <!-- 3. БОКОВАЯ ПАНЕЛЬ "УПРАВЛЕНИЕ" -->
+  <div id="side-panel" class="side-panel">
+    <div class="panel-header">
+      <div class="panel-title">Управление</div>
+      <div class="panel-actions">
+        <button id="btn-side-settings" class="btn-icon" title="Настройки">⚙</button>
+        <button id="btn-panel-close" class="btn-icon" title="Закрыть">✕</button>
+      </div>
+    </div>
+
+    <div class="panel-content">
+      <button id="btn-show-add-country" class="btn-add-country">+ Добавить страну</button>
+
+      <div id="country-form" class="country-form" style="display: none;">
+        <div class="form-group">
+          <label class="form-label">Тип страны</label>
+          <div class="type-selector">
+            <button type="button" class="type-btn selected" data-type="attack">Нападающая</button>
+            <button type="button" class="type-btn" data-type="defense">Оборонительная</button>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button id="btn-start-select" class="btn-submit-form">Выбрать на карте</button>
+          <button id="btn-cancel-create" class="btn-cancel-form">Отмена</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="countries-section-title">Список стран</div>
+        <div id="countries-list" class="countries-list">
+          <div class="empty-state">Пока нет созданных стран.<br>Нажмите «+ Добавить страну».</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- НОВАЯ СИСТЕМНАЯ ПАНЕЛЬ (ГЛАВНОЕ МЕНЮ ИГРЫ) -->
+  <div id="system-panel" class="side-panel">
+    <div class="panel-header">
+      <div class="panel-title" style="font-size: 18px; font-weight: 900; letter-spacing: 2px;">DeepWarsim</div>
+      <button id="btn-system-close" class="btn-icon">✕</button>
+    </div>
+    <div class="panel-content">
+      <button id="btn-return-menu" class="btn-submit-form" style="padding: 14px; font-size: 13px;">В главное меню</button>
+    </div>
+  </div>
+
+  <!-- 4. HUD ВЫБОРА СТРАНЫ -->
+  <div id="selection-hud" class="floating-hud">
+    <div class="hud-title">
+      <span id="hud-type-indicator" class="country-indicator attack"></span>
+      <span>Нажмите на любую страну на карте...</span>
+    </div>
+    <button id="btn-cancel-select" class="btn-hud-cancel btn-hud">Отмена</button>
+  </div>
+
+  <!-- 5. HUD ЛАССО-ЗАХВАТА -->
+  <div id="lasso-hud" class="floating-hud">
+    <div class="hud-header">
+      <div class="hud-title">
+        <span id="hud-lasso-indicator" class="country-indicator attack"></span>
+        <span id="hud-lasso-title">Захват территории</span>
+      </div>
+      <div id="hud-lasso-status" class="hud-hint">Зажмите и обведите зону от своей страны</div>
+    </div>
+    <div class="hud-actions">
+      <button id="btn-lasso-clear" class="btn-hud" disabled>Сбросить все</button>
+      <button id="btn-lasso-finish" class="btn-hud btn-hud-finish" disabled>Подтвердить захват</button>
+      <button id="btn-lasso-cancel" class="btn-hud btn-hud-cancel">Отмена</button>
+    </div>
+  </div>
+
+  <script>
+    /* ==========================================================================
+       КОНФИГУРАЦИЯ ESRI (БЕСПЛАТНЫЕ КАРТЫ)
+       ========================================================================== */
+    const MAP_TILES = {
+      dark: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+      light: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+      retro: "https://server.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}"
+    };
+
+    const THEME_COLORS = {
+      attack: { fill: "#e63946", fillOp: 0.45, stroke: "#e63946", label: "Нападающая" },
+      defense: { fill: "#2563eb", fillOp: 0.45, stroke: "#2563eb", label: "Оборонительная" }
+    };
+
+    const State = {
+      map: null,
+      tileLayer: null,
+      countries: [], 
+      worldFeatures: [],
+      selecting: { active: false, countryType: "attack" },
+      lasso: {
+        active: false, isDrawing: false, invaderCountry: null,
+        pixelPoints: [], startLatLng: null, previewPolygons: [], pendingOperations: []     
+      }
+    };
+
+    /* ==========================================================================
+       ИНТЕРАКТИВНЫЙ ФОН МЕНЮ (ПАРТИКЛЫ)
+       ========================================================================== */
+    const MenuFX = {
+      canvas: null, ctx: null, particles: [], mouseX: 0, mouseY: 0, animationId: null, enabled: true,
+
+      init() {
+        this.canvas = document.getElementById("menu-bg-canvas");
+        this.ctx = this.canvas.getContext("2d");
+        
+        window.addEventListener("resize", () => this.resize());
+        this.canvas.addEventListener("mousemove", (e) => {
+          this.mouseX = e.clientX; this.mouseY = e.clientY;
+        });
+
+        this.resize();
+        this.createParticles();
+        this.animate();
+      },
+      resize() {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+      },
+      createParticles() {
+        this.particles = [];
+        const count = Math.floor((window.innerWidth * window.innerHeight) / 12000);
+        for(let i = 0; i < count; i++) {
+          this.particles.push({
+            x: Math.random() * window.innerWidth, y: Math.random() * window.innerHeight,
+            vx: (Math.random() - 0.5) * 0.4, vy: (Math.random() - 0.5) * 0.4,
+            radius: Math.random() * 2 + 1
+          });
+        }
+      },
+      animate() {
+        if (!this.enabled) return;
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        const strokeColor = document.body.classList.contains('theme-midnight') ? '56, 189, 248' :
+                            document.body.classList.contains('theme-crimson') ? '248, 113, 113' : '255, 255, 255';
+
+        for (let i = 0; i < this.particles.length; i++) {
+          let p = this.particles[i];
+          p.x += p.vx; p.y += p.vy;
+
+          if (p.x < 0 || p.x > this.canvas.width) p.vx *= -1;
+          if (p.y < 0 || p.y > this.canvas.height) p.vy *= -1;
+
+          let dx = this.mouseX - p.x, dy = this.mouseY - p.y;
+          let dist = Math.sqrt(dx*dx + dy*dy);
+          if (dist < 150) { p.x -= dx * 0.02; p.y -= dy * 0.02; }
+
+          this.ctx.beginPath();
+          this.ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+          this.ctx.fillStyle = `rgba(${strokeColor}, 0.3)`;
+          this.ctx.fill();
+
+          for (let j = i + 1; j < this.particles.length; j++) {
+            let p2 = this.particles[j];
+            let dist2 = Math.sqrt(Math.pow(p.x - p2.x, 2) + Math.pow(p.y - p2.y, 2));
+            if (dist2 < 120) {
+              this.ctx.beginPath();
+              this.ctx.moveTo(p.x, p.y);
+              this.ctx.lineTo(p2.x, p2.y);
+              this.ctx.strokeStyle = `rgba(${strokeColor}, ${0.15 - dist2/120 * 0.15})`;
+              this.ctx.stroke();
+            }
+          }
+        }
+        // Сохраняем ID анимации
+        this.animationId = requestAnimationFrame(() => this.animate());
+      },
+      stop() {
+        this.enabled = false;
+        if(this.animationId) {
+            cancelAnimationFrame(this.animationId);
+            this.animationId = null;
+        }
+      },
+      resume() {
+        // ИСПРАВЛЕНИЕ ЗАВИСАНИЯ: Если уже включено, не плодить новые циклы requestAnimationFrame
+        if (this.enabled) return; 
+        
+        if(document.getElementById("select-animations").value === "on") {
+          this.enabled = true; 
+          this.animate();
+        }
+      }
+    };
+
+    /* ==========================================================================
+       НАСТРОЙКИ СИСТЕМЫ
+       ========================================================================== */
+    const Settings = {
+      modal: document.getElementById("settings-modal"),
+      themeSelect: document.getElementById("select-theme"),
+      mapStyleSelect: document.getElementById("select-map-style"),
+      animationsSelect: document.getElementById("select-animations"),
+
+      init() {
+        document.getElementById("btn-menu-settings").addEventListener("click", () => this.open());
+        document.getElementById("btn-side-settings").addEventListener("click", () => this.open());
+        document.getElementById("btn-close-settings").addEventListener("click", () => this.applyAndClose());
+        document.getElementById("btn-close-settings-x").addEventListener("click", () => this.close());
+      },
+      open() { this.modal.classList.add("active"); },
+      close() { this.modal.classList.remove("active"); },
+      applyAndClose() {
+        const theme = this.themeSelect.value;
+        document.body.className = theme === "default" ? "" : `theme-${theme}`;
+
+        if (State.map && State.tileLayer) {
+          State.tileLayer.setUrl(MAP_TILES[this.mapStyleSelect.value]);
+        }
+
+        if (this.animationsSelect.value === "off") {
+          MenuFX.stop();
+          MenuFX.ctx.clearRect(0,0, MenuFX.canvas.width, MenuFX.canvas.height);
+        } else {
+          if(!document.getElementById("screen-menu").classList.contains("hidden")) {
+            MenuFX.resume();
+          }
+        }
+        this.close();
+      }
+    };
+
+    /* ==========================================================================
+       ОСНОВНАЯ ЛОГИКА UI
+       ========================================================================== */
+    const UI = {
+      menuScreen: document.getElementById("screen-menu"),
+      btnPlay: document.getElementById("btn-play"),
+      
+      sidePanel: document.getElementById("side-panel"),
+      btnWarsToggle: document.getElementById("btn-wars-toggle"),
+      btnPanelClose: document.getElementById("btn-panel-close"),
+      btnShowAddCountry: document.getElementById("btn-show-add-country"),
+      countryForm: document.getElementById("country-form"),
+      typeButtons: document.querySelectorAll(".type-btn"),
+      btnStartSelect: document.getElementById("btn-start-select"),
+      btnCancelCreate: document.getElementById("btn-cancel-create"),
+      countriesList: document.getElementById("countries-list"),
+      
+      systemPanel: document.getElementById("system-panel"),
+      btnSystemToggle: document.getElementById("btn-system-toggle"),
+      btnSystemClose: document.getElementById("btn-system-close"),
+      btnReturnMenu: document.getElementById("btn-return-menu"),
+
+      selectionHud: document.getElementById("selection-hud"),
+      hudTypeIndicator: document.getElementById("hud-type-indicator"),
+      btnCancelSelect: document.getElementById("btn-cancel-select"),
+      
+      lassoHud: document.getElementById("lasso-hud"),
+      hudLassoTitle: document.getElementById("hud-lasso-title"),
+      hudLassoIndicator: document.getElementById("hud-lasso-indicator"),
+      hudLassoStatus: document.getElementById("hud-lasso-status"),
+      btnLassoClear: document.getElementById("btn-lasso-clear"),
+      btnLassoFinish: document.getElementById("btn-lasso-finish"),
+      btnLassoCancel: document.getElementById("btn-lasso-cancel"),
+
+      init() {
+        MenuFX.init();
+        Settings.init();
+
+        this.btnPlay.addEventListener("click", () => {
+          this.menuScreen.classList.add("hidden");
+          MenuFX.stop(); 
+          if (!State.map) initOpenStreetMap();
+          
+          this.btnWarsToggle.classList.add("active");
+          this.btnSystemToggle.classList.add("active");
+          this.btnPlay.textContent = "Продолжить игру";
+        });
+
+        this.btnWarsToggle.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.systemPanel.classList.remove("open"); 
+          this.sidePanel.classList.toggle("open");
+        });
+
+        this.btnSystemToggle.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.sidePanel.classList.remove("open"); 
+          this.systemPanel.classList.toggle("open");
+        });
+
+        this.btnReturnMenu.addEventListener("click", () => {
+          this.systemPanel.classList.remove("open");
+          this.btnWarsToggle.classList.remove("active");
+          this.btnSystemToggle.classList.remove("active");
+          this.menuScreen.classList.remove("hidden");
+          MenuFX.resume(); // ИСПРАВЛЕНИЕ: Безопасный вызов без зависаний
+        });
+
+        this.btnPanelClose.addEventListener("click", () => this.sidePanel.classList.remove("open"));
+        this.btnSystemClose.addEventListener("click", () => this.systemPanel.classList.remove("open"));
+        
+        this.btnShowAddCountry.addEventListener("click", () => this.showCreateForm());
+        this.btnCancelCreate.addEventListener("click", () => this.hideCreateForm());
+
+        this.typeButtons.forEach(btn => {
+          btn.addEventListener("click", () => {
+            this.typeButtons.forEach(b => b.classList.remove("selected"));
+            btn.classList.add("selected");
+          });
+        });
+
+        this.btnStartSelect.addEventListener("click", () => {
+          const selectedTypeBtn = document.querySelector(".type-btn.selected");
+          const type = selectedTypeBtn ? selectedTypeBtn.getAttribute("data-type") : "attack";
+          CountryPicker.start(type);
+        });
+
+        this.btnCancelSelect.addEventListener("click", () => CountryPicker.cancel());
+        this.btnLassoClear.addEventListener("click", () => LassoEngine.clearAll());
+        this.btnLassoFinish.addEventListener("click", () => LassoEngine.confirmInvasion());
+        this.btnLassoCancel.addEventListener("click", () => LassoEngine.cancel());
+
+        // Предотвращаем клики сквозь UI на мобильных
+        this.sidePanel.addEventListener("pointerdown", (e) => e.stopPropagation());
+        this.systemPanel.addEventListener("pointerdown", (e) => e.stopPropagation());
+        this.selectionHud.addEventListener("pointerdown", (e) => e.stopPropagation());
+        this.lassoHud.addEventListener("pointerdown", (e) => e.stopPropagation());
+      },
+
+      showCreateForm() { this.countryForm.style.display = "flex"; this.btnShowAddCountry.style.display = "none"; },
+      hideCreateForm() { this.countryForm.style.display = "none"; this.btnShowAddCountry.style.display = "block"; },
+
+      renderCountriesList() {
+        if (State.countries.length === 0) {
+          this.countriesList.innerHTML = `<div class="empty-state">Пока нет созданных стран.<br>Нажмите «+ Добавить страну».</div>`;
+          return;
+        }
+
+        this.countriesList.innerHTML = "";
+        State.countries.forEach(country => {
+          const card = document.createElement("div");
+          card.className = "country-card";
+          card.innerHTML = `
+            <div class="country-card-header">
+              <div class="country-indicator ${country.type}"></div>
+              <div class="country-info">
+                <div class="country-name">${escapeHtml(country.name)}</div>
+                <div class="country-type">${THEME_COLORS[country.type].label}</div>
+              </div>
+            </div>
+            <div class="country-card-actions">
+              <button class="btn-action-invade" data-id="${country.id}">⚔️ Захватить</button>
+              <button class="btn-action-delete" data-id="${country.id}" title="Удалить страну">🗑</button>
+            </div>
+          `;
+
+          card.querySelector(".country-card-header").addEventListener("click", () => {
+            if (country.mapLayer && State.map) {
+              State.map.fitBounds(country.mapLayer.getBounds());
+            }
+          });
+
+          card.querySelector(".btn-action-invade").addEventListener("click", (e) => {
+            e.stopPropagation(); LassoEngine.start(country);
+          });
+
+          card.querySelector(".btn-action-delete").addEventListener("click", (e) => {
+            e.stopPropagation(); removeCountry(country.id);
+          });
+
+          this.countriesList.appendChild(card);
+        });
+      }
+    };
+
+    function removeCountry(id) {
+      const idx = State.countries.findIndex(c => c.id === id);
+      if (idx !== -1) {
+        const country = State.countries[idx];
+        if (country.mapLayer) {
+          State.map.removeLayer(country.mapLayer);
+        }
+        State.countries.splice(idx, 1);
+        UI.renderCountriesList();
+      }
+    }
+
+    /* ==========================================================================
+       ИНИЦИАЛИЗАЦИЯ OPENSTREETMAP (LEAFLET + ESRI)
+       ========================================================================== */
+    function initOpenStreetMap() {
+      const mapElement = document.getElementById("map-canvas");
+      const currentStyleKey = document.getElementById("select-map-style").value;
+      
+      State.map = L.map(mapElement, {
+        zoomControl: false,
+        attributionControl: false
+      }).setView([48.0, 16.0], 4);
+
+      State.tileLayer = L.tileLayer(MAP_TILES[currentStyleKey], {
+        maxZoom: 12,
+        minZoom: 2,
+        attribution: ''
+      }).addTo(State.map);
+
+      fetch("https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson")
+        .then(res => res.json())
+        .then(data => { State.worldFeatures = data.features; })
+        .catch(err => console.error("Ошибка загрузки стран:", err));
+
+      State.map.on("click", (event) => {
+        if (State.selecting.active) {
+          CountryPicker.handleMapClick(event.latlng);
+        }
+      });
+
+      LassoEngine.initCanvas();
+    }
+
+    function renderCountryPolygons(country) {
+      if (country.mapLayer) {
+        State.map.removeLayer(country.mapLayer);
+      }
+
+      if (!country.geojson) return;
+      const colorConfig = THEME_COLORS[country.type];
+
+      // interactive: false отключает перехват кликов/свайпов самой страной
+      country.mapLayer = L.geoJSON(country.geojson, {
+        style: {
+          color: colorConfig.stroke,
+          weight: 1.5,
+          fillColor: colorConfig.fill,
+          fillOpacity: colorConfig.fillOp,
+          opacity: 0.9
+        },
+        interactive: false
+      }).addTo(State.map);
+    }
+
+    const CountryPicker = {
+      start(type) {
+        State.selecting.active = true;
+        State.selecting.countryType = type;
+        UI.sidePanel.classList.remove("open");
+        UI.hideCreateForm();
+        UI.hudTypeIndicator.className = `country-indicator ${type}`;
+        UI.selectionHud.classList.add("active");
+      },
+      cancel() { this.cleanup(); UI.sidePanel.classList.add("open"); },
+      cleanup() {
+        State.selecting.active = false;
+        UI.selectionHud.classList.remove("active");
+      },
+      handleMapClick(latLng) {
+        if (!State.worldFeatures || State.worldFeatures.length === 0) return;
+
+        const point = turf.point([latLng.lng, latLng.lat]);
+        let foundCountry = null;
+
+        for (const feature of State.worldFeatures) {
+          if (turf.booleanPointInPolygon(point, feature)) {
+            foundCountry = feature; break;
+          }
+        }
+
+        if (!foundCountry) {
+          alert("Страна в этом месте не найдена."); return;
+        }
+
+        const countryName = foundCountry.properties.ADMIN || foundCountry.properties.name || "Неизвестная страна";
+        const newCountry = {
+          id: Date.now(),
+          name: countryName,
+          type: State.selecting.countryType,
+          geojson: JSON.parse(JSON.stringify(foundCountry)),
+          mapLayer: null
+        };
+
+        renderCountryPolygons(newCountry);
+        State.countries.push(newCountry);
+
+        this.cleanup();
+        UI.renderCountriesList();
+        UI.sidePanel.classList.add("open");
+      }
+    };
+
+    /* ==========================================================================
+       ДВИЖОК ЛАССО (АДАПТИРОВАНО ПОД МОБИЛЬНЫЕ)
+       ========================================================================== */
+    const LassoEngine = {
+      canvas: null, ctx: null,
+
+      initCanvas() {
+        this.canvas = document.getElementById("lasso-canvas");
+        this.ctx = this.canvas.getContext("2d");
+        this.canvas.addEventListener("pointerdown", (e) => this.onPointerDown(e));
+        this.canvas.addEventListener("pointermove", (e) => this.onPointerMove(e));
+        window.addEventListener("pointerup", () => this.onPointerUp());
+      },
+      resizeCanvas() {
+        if (!this.canvas) return;
+        this.canvas.width = this.canvas.offsetWidth;
+        this.canvas.height = this.canvas.offsetHeight;
+      },
+      start(country) {
+        State.lasso.active = true;
+        State.lasso.invaderCountry = country;
+        State.lasso.isDrawing = false;
+        State.lasso.pixelPoints = [];
+        State.lasso.startLatLng = null;
+        State.lasso.pendingOperations = [];
+
+        UI.sidePanel.classList.remove("open");
+        UI.hudLassoTitle.textContent = `Захват: ${country.name}`;
+        UI.hudLassoIndicator.className = `country-indicator ${country.type}`;
+        this.restoreStatusText();
+        UI.btnLassoClear.disabled = true;
+        UI.btnLassoFinish.disabled = true;
+        UI.lassoHud.classList.add("active");
+
+        this.resizeCanvas();
+        this.canvas.classList.add("active");
+        
+        // Отключаем ВСЕ нативные мобильные жесты Leaflet для рисования
+        if(State.map) {
+            State.map.dragging.disable();
+            State.map.touchZoom.disable();
+            State.map.doubleClickZoom.disable();
+            State.map.scrollWheelZoom.disable();
+            State.map.boxZoom.disable();
+        }
+      },
+      pixelToLatLng(x, y) {
+        return State.map.containerPointToLatLng(L.point(x, y));
+      },
+      getEffectiveInvaderGeoJSON() {
+        let geom = State.lasso.invaderCountry.geojson;
+        State.lasso.pendingOperations.forEach(op => {
+          try { geom = turf.union(geom, op.capturedFeature); } catch(e) {}
+        });
+        return geom;
+      },
+      restoreStatusText() {
+        if (State.lasso.pendingOperations.length > 0) {
+          UI.hudLassoStatus.innerHTML = `<span style="color:#4ade80">Область добавлена! Можно выделить еще.</span>`;
+        } else {
+          UI.hudLassoStatus.innerHTML = `Зажмите и ведите линию от <b>${escapeHtml(State.lasso.invaderCountry.name)}</b>`;
+        }
+      },
+      onPointerDown(e) {
+        if (!State.lasso.active) return;
+        
+        const rect = this.canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left; const y = e.clientY - rect.top;
+        const startLatLng = this.pixelToLatLng(x, y);
+        if (!startLatLng) return;
+
+        const startPt = turf.point([startLatLng.lng, startLatLng.lat]);
+        const isInside = turf.booleanPointInPolygon(startPt, this.getEffectiveInvaderGeoJSON());
+
+        if (!isInside) {
+          UI.hudLassoStatus.innerHTML = `<span style="color:#ff6b6b">Начните рисовать внутри своей (или уже выделенной) территории!</span>`;
+          return;
+        }
+
+        if (this.ctx) this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        State.lasso.isDrawing = true;
+        State.lasso.startLatLng = startLatLng;
+        State.lasso.pixelPoints = [{ x, y }];
+        UI.hudLassoStatus.textContent = "Ведите линию на территорию противника...";
+      },
+      onPointerMove(e) {
+        if (!State.lasso.active || !State.lasso.isDrawing) return;
+        const rect = this.canvas.getBoundingClientRect();
+        State.lasso.pixelPoints.push({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+        this.renderStrokeLive();
+      },
+      onPointerUp() {
+        if (!State.lasso.active || !State.lasso.isDrawing) return;
+        State.lasso.isDrawing = false;
+
+        if (State.lasso.pixelPoints.length < 15) {
+          UI.hudLassoStatus.textContent = "Слишком короткая линия.";
+          if (this.ctx) this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+          setTimeout(() => this.restoreStatusText(), 1500);
+          return;
+        }
+
+        State.lasso.pixelPoints.push(State.lasso.pixelPoints[0]);
+        this.renderStrokeLive(true);
+        this.calculateIntersection();
+      },
+      renderStrokeLive(isFinished = false) {
+        const pts = State.lasso.pixelPoints;
+        if (pts.length < 2) return;
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        const color = THEME_COLORS[State.lasso.invaderCountry.type].stroke;
+
+        this.ctx.beginPath();
+        this.ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) this.ctx.lineTo(pts[i].x, pts[i].y);
+        this.ctx.closePath();
+        this.ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
+        this.ctx.fill();
+
+        if (!isFinished) {
+          this.ctx.beginPath();
+          this.ctx.setLineDash([6, 6]);
+          this.ctx.moveTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+          this.ctx.lineTo(pts[0].x, pts[0].y);
+          this.ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+          this.ctx.lineWidth = 1.5;
+          this.ctx.stroke();
+          this.ctx.setLineDash([]);
+        }
+
+        this.ctx.beginPath();
+        this.ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) this.ctx.lineTo(pts[i].x, pts[i].y);
+        if (isFinished) this.ctx.closePath();
+
+        this.ctx.strokeStyle = color;
+        this.ctx.lineWidth = 3;
+        this.ctx.lineCap = "round";
+        this.ctx.lineJoin = "round";
+        this.ctx.shadowColor = color;
+        this.ctx.shadowBlur = 10;
+        this.ctx.stroke();
+
+        if (!isFinished) {
+          this.ctx.beginPath();
+          this.ctx.arc(pts[pts.length - 1].x, pts[pts.length - 1].y, 5, 0, Math.PI * 2);
+          this.ctx.fillStyle = "#ffffff";
+          this.ctx.fill();
+        }
+      },
+      calculateIntersection() {
+        UI.hudLassoStatus.textContent = "Анализ зоны...";
+        try {
+          const coords = State.lasso.pixelPoints.map(p => this.pixelToLatLng(p.x, p.y)).filter(Boolean).map(ll => [ll.lng, ll.lat]);
+          if (coords.length < 4) return;
+          let lassoPoly = turf.polygon([coords]);
+          let cleanLassoPieces = [];
+          try {
+            const unkinked = turf.unkinkPolygon(lassoPoly);
+            cleanLassoPieces = unkinked.features.length > 0 ? unkinked.features : [lassoPoly];
+          } catch (e) { cleanLassoPieces = [lassoPoly]; }
+
+          const enemies = State.countries.filter(c => c.id !== State.lasso.invaderCountry.id);
+          if (enemies.length === 0) {
+            alert("Нет доступных стран-соперников!");
+            if (this.ctx) this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);
+            this.restoreStatusText();
+            return;
+          }
+
+          let capturedSomething = false;
+          const previewFeatures = [];
+
+          for (const enemy of enemies) {
+            let effectiveEnemyGeom = enemy.geojson;
+            State.lasso.pendingOperations.forEach(op => {
+              if (op.enemy.id === enemy.id) {
+                try {
+                  const diff = turf.difference(effectiveEnemyGeom, op.capturedFeature);
+                  if (diff) effectiveEnemyGeom = diff;
+                } catch(e) {}
+              }
+            });
+            if (!effectiveEnemyGeom) continue;
+
+            let capturedFromEnemy = null;
+            for (const piece of cleanLassoPieces) {
+              try {
+                const inter = turf.intersect(piece, effectiveEnemyGeom);
+                if (inter && inter.geometry && (inter.geometry.type === "Polygon" || inter.geometry.type === "MultiPolygon")) {
+                  capturedFromEnemy = capturedFromEnemy ? turf.union(capturedFromEnemy, inter) : inter;
+                }
+              } catch (err) {}
+            }
+
+            if (capturedFromEnemy) {
+              State.lasso.pendingOperations.push({ enemy, capturedFeature: capturedFromEnemy, startLatLng: State.lasso.startLatLng });
+              previewFeatures.push(capturedFromEnemy);
+              capturedSomething = true;
+            }
+          }
+
+          if (this.ctx) this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+          if (!capturedSomething) {
+            UI.hudLassoStatus.innerHTML = `<span style="color:#ff6b6b">Зона не задела территорию соперников.</span>`;
+            setTimeout(() => this.restoreStatusText(), 1500);
+            return;
+          }
+
+          this.showPreview(previewFeatures);
+          this.restoreStatusText();
+          UI.btnLassoFinish.disabled = false;
+          UI.btnLassoClear.disabled = false;
+
+        } catch (e) {
+          if (this.ctx) this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);
+          UI.hudLassoStatus.textContent = "Ошибка контура. Попробуйте обвести заново.";
+          setTimeout(() => this.restoreStatusText(), 1500);
+        }
+      },
+      showPreview(features) {
+        features.forEach(feat => {
+          const previewLayer = L.geoJSON(feat, {
+            style: { color: "#ffea00", weight: 2, fillColor: "#ffea00", fillOpacity: 0.35, opacity: 0.95 },
+            interactive: false
+          }).addTo(State.map);
+          State.lasso.previewPolygons.push(previewLayer);
+        });
+      },
+      confirmInvasion() {
+        if (!State.lasso.pendingOperations.length) return;
+        const invader = State.lasso.invaderCountry;
+        const ops = State.lasso.pendingOperations;
+
+        this.clearPreview();
+        if (this.ctx) this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        let allCaptured = null;
+        ops.forEach(op => { allCaptured = allCaptured ? turf.union(allCaptured, op.capturedFeature) : op.capturedFeature; });
+
+        const enemyMap = new Map();
+        ops.forEach(op => {
+          if (!enemyMap.has(op.enemy.id)) {
+            enemyMap.set(op.enemy.id, { enemy: op.enemy, totalLost: op.capturedFeature });
+          } else {
+            let data = enemyMap.get(op.enemy.id);
+            data.totalLost = turf.union(data.totalLost, op.capturedFeature);
+          }
+        });
+
+        enemyMap.forEach(data => {
+          try {
+            const diff = turf.difference(data.enemy.geojson, data.totalLost);
+            if (diff) data.enemy.geojson = diff;
+          } catch (e) {}
+          renderCountryPolygons(data.enemy);
+        });
+
+        try {
+          const united = turf.union(invader.geojson, allCaptured);
+          if (united) invader.geojson = united;
+        } catch (e) {}
+
+        this.cleanup();
+        this.animateFrontWave(allCaptured, ops, THEME_COLORS[invader.type], invader);
+      },
+      animateFrontWave(allCaptured, ops, colorConfig, invader) {
+        const startPoints = ops.map(op => turf.point([op.startLatLng.lng, op.startLatLng.lat]));
+        let maxDist = 10;
+        turf.coordEach(allCaptured, coord => {
+          const pt = turf.point(coord);
+          let mDist = Infinity;
+          startPoints.forEach(sp => { const d = turf.distance(sp, pt); if (d < mDist) mDist = d; });
+          if (mDist > maxDist) maxDist = mDist;
+        });
+
+        let wavePolys = [];
+        let frame = 0; const totalFrames = 30;
+
+        const interval = setInterval(() => {
+          frame++;
+          const currentRadius = ((frame / totalFrames) * maxDist * 1.08) + 0.5;
+          wavePolys.forEach(p => State.map.removeLayer(p)); wavePolys = [];
+
+          try {
+            let waveArea = null;
+            startPoints.forEach(sp => {
+              const circle = turf.circle(sp, currentRadius, { steps: 32 });
+              waveArea = waveArea ? turf.union(waveArea, circle) : circle;
+            });
+
+            const waveSlice = turf.intersect(allCaptured, waveArea);
+            if (waveSlice && waveSlice.geometry) {
+              const waveLayer = L.geoJSON(waveSlice, {
+                style: {
+                  color: frame / totalFrames < 0.85 ? "#ffffff" : colorConfig.stroke,
+                  weight: frame / totalFrames < 0.85 ? 3 : 1.5,
+                  fillColor: colorConfig.stroke,
+                  fillOpacity: 0.2 + ((frame / totalFrames) * 0.35),
+                  opacity: 1
+                },
+                interactive: false
+              }).addTo(State.map);
+              wavePolys.push(waveLayer);
+            }
+          } catch (e) {}
+
+          if (frame >= totalFrames) {
+            clearInterval(interval);
+            setTimeout(() => {
+              wavePolys.forEach(p => State.map.removeLayer(p));
+              renderCountryPolygons(invader);
+              UI.sidePanel.classList.add("open");
+            }, 50);
+          }
+        }, 28);
+      },
+      clearPreview() { State.lasso.previewPolygons.forEach(p => State.map.removeLayer(p)); State.lasso.previewPolygons = []; },
+      clearAll() {
+        if (this.ctx) this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);
+        this.clearPreview();
+        State.lasso.pixelPoints = [];
+        State.lasso.pendingOperations = [];
+        State.lasso.startLatLng = null;
+        UI.btnLassoFinish.disabled = true;
+        UI.btnLassoClear.disabled = true;
+        if (State.lasso.invaderCountry) UI.hudLassoStatus.innerHTML = `Зажмите и ведите линию от <b>${escapeHtml(State.lasso.invaderCountry.name)}</b>`;
+      },
+      cancel() { this.cleanup(); UI.sidePanel.classList.add("open"); },
+      cleanup() {
+        this.clearAll();
+        State.lasso.active = false;
+        State.lasso.isDrawing = false;
+        if (this.canvas) this.canvas.classList.remove("active");
+        UI.lassoHud.classList.remove("active");
+        
+        // Включаем мобильные жесты обратно после завершения рисования
+        if(State.map) {
+            State.map.dragging.enable();
+            State.map.touchZoom.enable();
+            State.map.doubleClickZoom.enable();
+            State.map.scrollWheelZoom.enable();
+            State.map.boxZoom.enable();
+        }
+      }
+    };
+
+    function escapeHtml(str) {
+      const div = document.createElement("div");
+      div.textContent = str; return div.innerHTML;
+    }
+
+    document.addEventListener("DOMContentLoaded", () => UI.init());
+  </script>
+</body>
+</html>
