@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>DeepWarsim 5.0 — Глобальная Стратегия</title>
+  <title>DeepWarsim 5.5 — Глобальная Стратегия</title>
   
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -101,6 +101,7 @@
     .army-icon-inner { width: 100%; height: 100%; background: rgba(20, 30, 48, 0.9); border: 2px solid var(--accent-player); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.8), inset 0 0 10px rgba(244,63,94,0.5); transition: transform 0.2s, border-color 0.2s; pointer-events: none;}
     
     .army-marker.selected .army-icon-inner { transform: scale(1.2); border-color: #fda4af; box-shadow: 0 0 20px rgba(253, 164, 175, 0.8); }
+    .army-marker.multi-selected .army-icon-inner { border-color: #fbbf24; box-shadow: 0 0 20px rgba(251, 191, 36, 0.8); }
     .army-enemy .army-icon-inner { border-color: var(--accent-enemy); box-shadow: 0 4px 15px rgba(0,0,0,0.8), inset 0 0 10px rgba(59,130,246,0.5); }
     
     .army-dead { opacity: 0; pointer-events: none; }
@@ -128,7 +129,12 @@
     .floating-hud.active { display: flex; opacity: 1; transform: translateX(-50%) translateY(0); }
     .hud-title { font-size: 14px; font-weight: 800; text-transform: uppercase; color: #fff;}
     .hud-hint { font-size: 11px; color: var(--text-muted); margin-top: 5px; text-align: center; }
-    .hud-cancel-btn { margin-top: 15px; width: 100%; padding: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px; font-weight: 700; text-transform: uppercase; cursor: pointer; }
+    .hud-actions { display: flex; gap: 8px; width: 100%; margin-top: 12px; }
+    .hud-btn { flex: 1; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px; font-weight: 700; font-size: 11px; text-transform: uppercase; cursor: pointer; transition: var(--transition-smooth); }
+    .hud-btn:hover { background: rgba(255,255,255,0.15); }
+    .hud-btn-confirm { background: rgba(59, 130, 246, 0.3); border-color: rgba(59, 130, 246, 0.6); color: #93c5fd; }
+    .hud-btn-confirm:disabled { opacity: 0.4; cursor: not-allowed; }
+    .hud-cancel-btn { margin-top: 10px; width: 100%; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px; font-weight: 700; text-transform: uppercase; cursor: pointer; }
 
     @keyframes shake { 0% { transform: translate(1px, 1px) rotate(0deg); } 25% { transform: translate(-1px, -2px) rotate(-1deg); } 50% { transform: translate(-2px, 0px) rotate(1deg); } 75% { transform: translate(2px, 2px) rotate(0deg); } 100% { transform: translate(1px, -1px) rotate(-1deg); } }
   </style>
@@ -140,9 +146,9 @@
     <div class="menu-container">
       <div class="game-title-wrapper">
         <h1 class="game-title">DeepWarsim</h1>
-        <div class="beta-badge">V5.0</div>
+        <div class="beta-badge">V5.5</div>
       </div>
-      <p class="game-subtitle">Играем за красных. Захватываем территории, управляем экономикой, планируем котлы.</p>
+      <p class="game-subtitle">Групповое управление армией, динамический фронт и котлы.</p>
       <div class="menu-buttons">
         <button id="btn-play" class="btn-main btn-play" disabled>Инициализация...</button>
         <button id="btn-menu-settings" class="btn-main">Настройки</button>
@@ -162,14 +168,6 @@
           <option value="default">Тёмная (Стандарт)</option>
           <option value="midnight">Глубокий синий (Midnight)</option>
           <option value="crimson">Багровая (Crimson)</option>
-        </select>
-      </div>
-      <div class="settings-group">
-        <label class="settings-label">Стиль Карты</label>
-        <select id="select-map-style" class="settings-select">
-          <option value="tactical">Тактическая (Тёмная)</option>
-          <option value="atlas">Атлас (Светлая)</option>
-          <option value="retro">Ретро (Старая бумага)</option>
         </select>
       </div>
       <div class="settings-group">
@@ -267,7 +265,37 @@
     </div>
   </div>
 
-  <!-- ПЛАВАЮЩИЕ HUD -->
+  <!-- HUD МЕНЮ ДИВИЗИИ -->
+  <div id="hud-unit-single" class="floating-hud">
+    <div class="hud-title">Дивизия выбрана</div>
+    <div class="hud-hint">Выберите действие для армии.</div>
+    <div class="hud-actions">
+      <button id="btn-multi-select" class="hud-btn">Выбрать несколько</button>
+      <button id="btn-move-single" class="hud-btn hud-btn-confirm">Переместить</button>
+    </div>
+    <button id="btn-cancel-single" class="hud-cancel-btn">Отмена</button>
+  </div>
+
+  <!-- HUD МУЛЬТИ-ВЫБОР -->
+  <div id="hud-unit-multi" class="floating-hud">
+    <div class="hud-title">Групповое выделение</div>
+    <div class="hud-hint" id="multi-count">Выбрано юнитов: 1. Кликайте по другим.</div>
+    <div class="hud-actions">
+      <button id="btn-send-all" class="hud-btn hud-btn-confirm">Отправить всех</button>
+    </div>
+    <button id="btn-cancel-multi" class="hud-cancel-btn">Отмена</button>
+  </div>
+
+  <!-- HUD РАССТАНОВКА ТОЧЕК ДЛЯ ГРУППЫ -->
+  <div id="hud-multi-targets" class="floating-hud">
+    <div class="hud-title" style="color:#bae6fd;">Назначение точек</div>
+    <div class="hud-hint" id="multi-target-hint">Кликните на карту, чтобы расставить пункты назначения.</div>
+    <div class="hud-actions">
+      <button id="btn-confirm-all" class="hud-btn hud-btn-confirm" disabled>Подтвердить приказ</button>
+    </div>
+    <button id="btn-cancel-targets" class="hud-cancel-btn">Отмена</button>
+  </div>
+
   <div id="hud-select-player" class="floating-hud">
     <div class="hud-title">Выбор нации</div>
     <div class="hud-hint">Кликните на любую страну на карте.</div>
@@ -282,15 +310,10 @@
     <div class="hud-hint">Выберите страну для расстановки армии по её границе.</div>
     <button id="btn-cancel-deploy" class="hud-cancel-btn">Отмена</button>
   </div>
-  <div id="hud-move-unit" class="floating-hud">
-    <div class="hud-title" style="color:#bae6fd;">Перемещение армии</div>
-    <div class="hud-hint">Кликните на карту, куда отправить дивизию.</div>
-    <button id="btn-cancel-move" class="hud-cancel-btn">Отмена</button>
-  </div>
 
   <script>
     /* ==========================================================================
-       ГЛОБАЛЬНЫЕ ДАННЫЕ И УТИЛИТЫ
+       УТИЛИТЫ И ДАННЫЕ
        ========================================================================== */
     const GeoUtils = {
       normalizeLng: (lng) => { let n = lng % 360; if (n > 180) n -= 360; if (n <= -180) n += 360; return n; },
@@ -316,11 +339,12 @@
       baseLayer: null, playerLayer: null, enemyLayers: {},
       gameState: 'MENU', 
       player: { id: null, name: "", iso: "", feature: null, gov: 'democracy', taxes: 15, conscription: 2, money: 200000, manpower: 1000 },
-      wars: [], units: [], selectedUnit: null
+      wars: [], units: [], selectedUnit: null,
+      multiSelected: [], multiTargets: []
     };
 
     /* ==========================================================================
-       ПОЛНОЦЕННЫЕ ОБЪЕКТЫ НАСТРОЕК И ПАРТИКЛОВ (ВЕРНУЛ НА МЕСТО)
+       ПОЛНОЦЕННЫЕ ОБЪЕКТЫ MENUFX И SETTINGS
        ========================================================================== */
     const MenuFX = {
       canvas: null, ctx: null, particles: [], mouseX: 0, mouseY: 0, animationId: null, enabled: true,
@@ -369,10 +393,6 @@
       modal: document.getElementById("settings-modal"),
       init() {
         document.getElementById("btn-menu-settings")?.addEventListener("click", () => this.modal.classList.add("active"));
-        document.getElementById("btn-side-settings")?.addEventListener("click", () => {
-            document.getElementById('panel-state').classList.remove('open');
-            this.modal.classList.add("active");
-        });
         document.getElementById("btn-close-settings")?.addEventListener("click", () => this.applyAndClose());
         document.getElementById("btn-close-settings-x")?.addEventListener("click", () => this.modal.classList.remove("active"));
       },
@@ -429,10 +449,8 @@
 
             if (btn) btn.textContent = 'Инициализация движка...';
             
-            // ВАЖНО: инициализируем UI, MenuFX и Settings!
             UI.init();
             
-            // Запуск карты
             State.map = L.map("map-canvas", { zoomControl: false, attributionControl: false, worldCopyJump: true, renderer: L.canvas() }).setView([48.0, 16.0], 4);
             State.map.createPane('labels'); State.map.getPane('labels').style.zIndex = 450; State.map.getPane('labels').style.pointerEvents = 'none';
             L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', { pane: 'labels' }).addTo(State.map);
@@ -466,7 +484,6 @@
        ========================================================================== */
     const UI = {
       init() {
-        // Гарантированно запускаем восстановленные объекты
         MenuFX.init();
         Settings.init();
 
@@ -510,14 +527,36 @@
 
         document.getElementById('btn-recruit')?.addEventListener('click', () => ArmyEngine.spawnUnit());
 
-        document.getElementById('btn-cancel-move')?.addEventListener('click', () => {
-           State.gameState = 'PLAYING';
-           if(State.selectedUnit && State.selectedUnit.marker.getElement()) {
-               State.selectedUnit.marker.getElement().classList.remove('selected');
-           }
-           State.selectedUnit = null;
-           document.getElementById('hud-move-unit').classList.remove('active');
+        // КНОПКИ ГРУППОВОГО УПРАВЛЕНИЯ
+        document.getElementById('btn-move-single')?.addEventListener('click', () => {
+            document.getElementById('hud-unit-single').classList.remove('active');
+            State.gameState = 'MOVE_UNIT';
+            document.getElementById('hud-move-unit').classList.add('active');
         });
+        document.getElementById('btn-multi-select')?.addEventListener('click', () => {
+            document.getElementById('hud-unit-single').classList.remove('active');
+            State.multiSelected = [State.selectedUnit];
+            State.selectedUnit.marker.getElement().querySelector('.army-icon-inner').classList.add('multi-selected');
+            State.gameState = 'UNIT_MULTI';
+            document.getElementById('multi-count').textContent = `Выбрано юнитов: 1. Кликайте по другим.`;
+            document.getElementById('hud-unit-multi').classList.add('active');
+        });
+        document.getElementById('btn-cancel-single')?.addEventListener('click', () => this.resetSelection());
+
+        document.getElementById('btn-send-all')?.addEventListener('click', () => {
+            document.getElementById('hud-unit-multi').classList.remove('active');
+            State.multiTargets = [];
+            State.gameState = 'MULTI_TARGETS';
+            document.getElementById('multi-target-hint').textContent = `Расставьте точек: 0 из ${State.multiSelected.length}`;
+            document.getElementById('hud-multi-targets').classList.add('active');
+        });
+        document.getElementById('btn-cancel-multi')?.addEventListener('click', () => this.resetSelection());
+
+        document.getElementById('btn-confirm-all')?.addEventListener('click', () => {
+            ArmyEngine.executeMultiMove();
+            this.resetSelection();
+        });
+        document.getElementById('btn-cancel-targets')?.addEventListener('click', () => this.resetSelection());
 
         document.getElementById('btn-declare-war')?.addEventListener('click', () => {
           document.getElementById('panel-state').classList.remove('open');
@@ -535,20 +574,39 @@
         document.getElementById('btn-bottom-toggle')?.addEventListener('click', () => {
             document.getElementById('bottom-menu-panel').classList.toggle('open');
         });
-        
         document.getElementById('btn-deploy-border')?.addEventListener('click', () => {
             State.gameState = 'SELECT_DEPLOY_TARGET';
             document.getElementById('bottom-menu-panel').classList.remove('open');
             document.getElementById('hud-deploy-target').classList.add('active');
         });
-        
         document.getElementById('btn-cancel-deploy')?.addEventListener('click', () => {
           State.gameState = 'PLAYING'; document.getElementById('hud-deploy-target').classList.remove('active');
+        });
+
+        document.getElementById('btn-cancel-move')?.addEventListener('click', () => {
+           this.resetSelection();
+           document.getElementById('hud-move-unit').classList.remove('active');
         });
 
         setInterval(() => this.gameTick(), 2000);
         setInterval(() => AIEngine.tick(), 4000);
         setInterval(() => ArmyEngine.combatTick(), 500); 
+      },
+
+      resetSelection() {
+          State.gameState = 'PLAYING';
+          if(State.selectedUnit && State.selectedUnit.marker.getElement()) {
+              State.selectedUnit.marker.getElement().querySelector('.army-icon-inner').classList.remove('selected');
+          }
+          State.multiSelected.forEach(u => {
+              if(u.marker.getElement()) u.marker.getElement().querySelector('.army-icon-inner').classList.remove('multi-selected');
+          });
+          State.selectedUnit = null; State.multiSelected = []; State.multiTargets = [];
+          document.getElementById('hud-unit-single').classList.remove('active');
+          document.getElementById('hud-unit-multi').classList.remove('active');
+          document.getElementById('hud-multi-targets').classList.remove('active');
+          document.getElementById('hud-move-unit').classList.remove('active');
+          document.getElementById('btn-confirm-all').disabled = true;
       },
 
       setPlayer(feature) {
@@ -666,14 +724,22 @@
       },
 
       handleMapClick(e) {
+        // 1. Одиночное перемещение
         if(State.gameState === 'MOVE_UNIT' && State.selectedUnit) {
            ArmyEngine.slideUnit(State.selectedUnit, e.latlng);
-           State.gameState = 'PLAYING'; 
-           if(State.selectedUnit && State.selectedUnit.marker.getElement()) {
-               State.selectedUnit.marker.getElement().classList.remove('selected'); 
+           UI.resetSelection();
+           return;
+        }
+
+        // 2. Расстановка точек для группы
+        if(State.gameState === 'MULTI_TARGETS') {
+           State.multiTargets.push(e.latlng);
+           let needed = State.multiSelected.length;
+           let current = State.multiTargets.length;
+           document.getElementById('multi-target-hint').textContent = `Расставьте точек: ${current} из ${needed}`;
+           if(current >= needed) {
+               document.getElementById('btn-confirm-all').disabled = false;
            }
-           State.selectedUnit = null;
-           document.getElementById('hud-move-unit').classList.remove('active');
            return;
         }
 
@@ -741,7 +807,7 @@
     };
 
     /* ==========================================================================
-       ДВИЖОК АРМИИ (БОИ, ПЛАВНЫЙ КОНУСНЫЙ ЗАХВАТ И КОТЛЫ)
+       ДВИЖОК АРМИИ И ГРУППОВЫХ ПРИКАЗОВ
        ========================================================================== */
     const ArmyEngine = {
       spawnUnit(isFree = false) {
@@ -772,13 +838,23 @@
         marker.on('click', (e) => {
           L.DomEvent.stopPropagation(e);
           if(unit.isDead) return;
+
+          if(State.gameState === 'UNIT_MULTI') {
+              if(!State.multiSelected.includes(unit)) {
+                  State.multiSelected.push(unit);
+                  marker.getElement().querySelector('.army-icon-inner').classList.add('multi-selected');
+                  document.getElementById('multi-count').textContent = `Выбрано юнитов: ${State.multiSelected.length}. Кликайте по другим.`;
+              }
+              return;
+          }
+
           if(State.selectedUnit && State.selectedUnit.marker.getElement()) {
-              State.selectedUnit.marker.getElement().classList.remove('selected');
+              State.selectedUnit.marker.getElement().querySelector('.army-icon-inner').classList.remove('selected');
           }
           State.selectedUnit = unit;
-          marker.getElement().classList.add('selected');
-          State.gameState = 'MOVE_UNIT';
-          document.getElementById('hud-move-unit').classList.add('active');
+          marker.getElement().querySelector('.army-icon-inner').classList.add('selected');
+          State.gameState = 'UNIT_SINGLE';
+          document.getElementById('hud-unit-single').classList.add('active');
         });
       },
 
@@ -814,7 +890,6 @@
         const speed = unit.type === 'tank' ? 90000 : unit.type === 'plane' ? 250000 : 50000; 
         const duration = Math.max((dist / speed) * 1000, 1000); 
         
-        // Конусный захват
         const baseRadius = unit.type === 'tank' ? 8 : 5;
         const maxRadius = unit.type === 'tank' ? 40 : 20; 
         const distanceForMax = 1000000; 
@@ -862,6 +937,15 @@
             }
         };
         requestAnimationFrame(animate);
+      },
+
+      executeMultiMove() {
+          State.multiSelected.forEach((u, index) => {
+              let target = State.multiTargets[index] || State.multiTargets[State.multiTargets.length - 1];
+              if(target) {
+                  this.slideUnit(u, target);
+              }
+          });
       },
 
       combatTick() {
